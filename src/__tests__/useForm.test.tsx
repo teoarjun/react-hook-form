@@ -2280,6 +2280,15 @@ describe('useForm', () => {
       jest.advanceTimersByTime(1500);
     });
 
+    // the first validation has settled, but the one started by the second
+    // change is still pending
+    expect(formState.validatingFields).toStrictEqual({ lastName: true });
+    expect(getFieldState('lastName').isValidating).toBe(true);
+
+    await act(async () => {
+      jest.advanceTimersByTime(1500);
+    });
+
     expect(formState.validatingFields).toStrictEqual({});
     expect(getFieldState('lastName').isValidating).toBe(false);
   });

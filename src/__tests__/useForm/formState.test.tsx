@@ -2745,6 +2745,98 @@ describe('formState', () => {
     },
   );
 
+  describe('when an older validation of a field settles before a newer one', () => {
+    const setup = (kind: 'validate' | 'resolver') => {
+      const pending: Array<() => void> = [];
+      const check = () =>
+        new Promise<void>((resolve) => {
+          pending.push(resolve);
+        });
+
+      const App = () => {
+        const {
+          register,
+          formState: { isValidating, validatingFields },
+        } = useForm<{ username: string }>({
+          mode: 'onChange',
+          ...(kind === 'resolver'
+            ? {
+                resolver: async (values) => {
+                  await check();
+                  return { values, errors: {} };
+                },
+              }
+            : {}),
+        });
+
+        return (
+          <form>
+            <input
+              data-testid="username"
+              {...register(
+                'username',
+                kind === 'validate'
+                  ? {
+                      validate: async () => {
+                        await check();
+                        return true;
+                      },
+                    }
+                  : {},
+              )}
+            />
+            <p>{isValidating ? 'validating' : 'idle'}</p>
+            <p>{validatingFields.username ? 'field pending' : 'field idle'}</p>
+          </form>
+        );
+      };
+
+      render(<App />);
+
+      return pending;
+    };
+
+    it.each(['validate', 'resolver'] as const)(
+      'should keep isValidating true until the latest one settles with %s',
+      async (kind) => {
+        const pending = setup(kind);
+        const input = screen.getByTestId('username');
+
+        fireEvent.change(input, { target: { value: 'a' } });
+        fireEvent.change(input, { target: { value: 'ab' } });
+        await waitFor(() => expect(pending).toHaveLength(2));
+
+        await act(async () => pending[0]());
+
+        expect(screen.getByText('validating')).toBeVisible();
+        expect(screen.getByText('field pending')).toBeVisible();
+
+        await act(async () => pending[1]());
+
+        expect(screen.getByText('idle')).toBeVisible();
+        expect(screen.getByText('field idle')).toBeVisible();
+      },
+    );
+
+    it('should still clear isValidating when the newer event skips validation', async () => {
+      const pending = setup('validate');
+      const input = screen.getByTestId('username');
+
+      fireEvent.change(input, { target: { value: 'a' } });
+      await waitFor(() => expect(pending).toHaveLength(1));
+
+      // onChange mode does not validate on blur, so this event must not
+      // supersede the pending change validation
+      fireEvent.blur(input);
+
+      await act(async () => pending[0]());
+
+      expect(pending).toHaveLength(1);
+      expect(screen.getByText('idle')).toBeVisible();
+      expect(screen.getByText('field idle')).toBeVisible();
+    });
+  });
+
   it('should keep the validatingFields reference when the pending state does not change', async () => {
     const form = createFormControl({ defaultValues: { test: '', other: '' } });
     let resolveValidate = noop;

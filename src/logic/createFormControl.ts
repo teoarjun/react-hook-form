@@ -243,6 +243,8 @@ export function createFormControl<
   let _resetCallId = 0;
   let _registerCallId = 0;
   const _registerCallIds: Record<InternalFieldName, number> = {};
+  let _fieldValidationCallId = 0;
+  const _fieldValidationCallIds: Record<InternalFieldName, number> = {};
 
   let shouldDisplayAllAssociatedErrors =
     _options.criteriaMode === VALIDATION_MODE.all;
@@ -1474,6 +1476,17 @@ export function createFormControl<
         );
       }
 
+      // Typing fires a new validation per keystroke while earlier async ones
+      // are still pending. Only the latest one for this field may clear its
+      // validating state, or an older one settling first reports the field as
+      // idle while the newer one is still running.
+      const fieldName = name;
+      const validationCallId = ++_fieldValidationCallId;
+      _fieldValidationCallIds[fieldName] = validationCallId;
+      const updateIsValidatingIfLatest = () =>
+        _fieldValidationCallIds[fieldName] === validationCallId &&
+        _updateIsValidating([fieldName]);
+
       if (!_options.resolver && _options.validate) {
         await validateForm({
           name: name as FieldPath<TFieldValues>,
@@ -1491,7 +1504,7 @@ export function createFormControl<
           return;
         }
 
-        _updateIsValidating([name]);
+        updateIsValidatingIfLatest();
 
         _updateIsFieldValueUpdated(fieldValue);
 
@@ -1533,7 +1546,7 @@ export function createFormControl<
           return;
         }
 
-        _updateIsValidating([name]);
+        updateIsValidatingIfLatest();
 
         _updateIsFieldValueUpdated(fieldValue);
 
